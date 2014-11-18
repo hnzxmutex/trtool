@@ -412,6 +412,7 @@ void transdata(int fd1,int fd2)
     char host1[20],host2[20];
     int port1=0,port2=0;
     char tmpbuf1[100],tmpbuf2[100];
+    int fd1_has_data = 0,fd2_has_data = 0;//check writefd flag 
 
     memset(host1,0,20);
     memset(host2,0,20);
@@ -453,12 +454,14 @@ void transdata(int fd1,int fd2)
 
     timeset.tv_sec=TIMEOUT;
     timeset.tv_usec=0;
-    FD_ZERO(&readfd);
-    FD_ZERO(&writefd);
     while(1)
     {
+        FD_ZERO(&readfd);
+        FD_ZERO(&writefd);
         FD_SET(fd1,&readfd);
         FD_SET(fd2,&readfd);
+        if(fd1_has_data){FD_SET(fd2,&writefd);}
+        if(fd2_has_data){FD_SET(fd1,&writefd);}
         result=select(maxfd,&readfd,&writefd,NULL,&timeset);
         if((result<0) && (errno!=EINTR))
         {
@@ -499,7 +502,7 @@ void transdata(int fd1,int fd2)
             else
             {
                 memset(send_out2,0,MAXSIZE);
-                FD_CLR(fd1,&writefd);
+                fd2_has_data = 0;
             } 
         }
 
@@ -531,50 +534,43 @@ void transdata(int fd1,int fd2)
             else
             {
                 memset(send_out1,0,MAXSIZE);
-                FD_CLR(fd2,&writefd);
+                fd1_has_data = 0;
             }
         }
 
-        if(FD_ISSET(fd1,&readfd))
+        if(FD_ISSET(fd1,&readfd) && totalread1<MAXSIZE)
         {
             /* 不能超过MAXSIZE-totalread1,不然send_out1会溢出 */
-            if(totalread1<MAXSIZE)
+            read1=read(fd1,read_in1,MAXSIZE-totalread1);
+            if(read1==0) break;
+            if((read1<0) && (errno!=EINTR))
             {
-                read1=read(fd1,read_in1,MAXSIZE-totalread1);
-                if(read1==0) break;
-                if((read1<0) && (errno!=EINTR))
-                {
-                    perror("read data error");
-                    break;
-                }
-                memcpy(send_out1+totalread1,read_in1,read1);
-                makelog(tmpbuf1,strlen(tmpbuf1));
-                makelog(read_in1,read1);
-                totalread1+=read1;
-                memset(read_in1,0,MAXSIZE);
+                perror("read data error");
+                break;
             }
-            FD_SET(fd2,&writefd);
+            memcpy(send_out1+totalread1,read_in1,read1);
+            makelog(tmpbuf1,strlen(tmpbuf1));
+            makelog(read_in1,read1);
+            totalread1+=read1;
+            memset(read_in1,0,MAXSIZE);
+            fd1_has_data = 1;
         }
 
-        if(FD_ISSET(fd2,&readfd))
+        if(FD_ISSET(fd2,&readfd) && totalread2<MAXSIZE)
         {
-
-            if(totalread2<MAXSIZE)
+            read2=read(fd2,read_in2,MAXSIZE-totalread2);
+            if(read2==0)break;
+            if((read2<0) && (errno!=EINTR))
             {
-                read2=read(fd2,read_in2,MAXSIZE-totalread2);
-                if(read2==0)break;
-                if((read2<0) && (errno!=EINTR))
-                {
-                    perror("read data error");
-                    break;
-                }
-                memcpy(send_out2+totalread2,read_in2,read2);
-                makelog(tmpbuf2,strlen(tmpbuf2));
-                makelog(read_in2,read2);
-                totalread2+=read2;
-                memset(read_in2,0,MAXSIZE);
+                perror("read data error");
+                break;
             }
-            FD_SET(fd1,&writefd);
+            memcpy(send_out2+totalread2,read_in2,read2);
+            makelog(tmpbuf2,strlen(tmpbuf2));
+            makelog(read_in2,read2);
+            totalread2+=read2;
+            memset(read_in2,0,MAXSIZE);
+            fd2_has_data = 1;
         }
     }
 
